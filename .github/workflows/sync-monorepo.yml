@@ -1,0 +1,66 @@
+name: Sync tronprotocol monorepo
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout libp2p
+        uses: actions/checkout@v6
+        with:
+          repository: tronprotocol/libp2p
+          path: _imports/libp2p
+          fetch-depth: 0
+          # Uncomment only if the source repo is private/internal:
+          # token: ${{ secrets.MONOREPO_PAT }}
+
+      - name: Checkout java-tron
+        uses: actions/checkout@v6
+        with:
+          repository: tronprotocol/java-tron
+          path: _imports/java-tron
+          fetch-depth: 0
+          # Uncomment only if the source repo is private/internal:
+          # token: ${{ secrets.MONOREPO_PAT }}
+
+      - name: Rebuild monorepo layout
+        run: |
+          set -euo pipefail
+
+          mkdir -p vendor
+          rm -rf vendor/libp2p vendor/java-tron
+          mkdir -p vendor/libp2p vendor/java-tron
+
+          rsync -a --delete --exclude='.git' _imports/libp2p/ vendor/libp2p/
+          rsync -a --delete --exclude='.git' _imports/java-tron/ vendor/java-tron/
+
+          rm -rf _imports
+
+      - name: Commit and push changes
+        run: |
+          set -euo pipefail
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add vendor
+          git commit -m "Sync libp2p and java-tron into monorepo"
+          git push
