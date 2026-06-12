@@ -30,12 +30,21 @@ jobs:
   sync-upstreams:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.REPO_PAT }}
 
     steps:
       - name: Checkout monorepo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Verify token
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "REPO_PAT is missing or empty"
+            exit 1
+          fi
 
       - name: Configure git
         run: |
@@ -71,22 +80,30 @@ jobs:
             git subtree add --prefix=vendor/java-tron java-tron-upstream "$JAVA_TRON_REF" --squash
           fi
 
+      - name: Commit changes
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          git checkout -b sync/tron-monorepo
+          git add vendor/libp2p vendor/java-tron
+          git commit -m "sync: import tronprotocol/libp2p and tronprotocol/java-tron"
+
+      - name: Push branch
+        run: |
+          git push --force-with-lease origin sync/tron-monorepo
+
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.REPO_PAT }}
-          branch: sync/tron-monorepo
-          branch-suffix: none
-          delete-branch: true
-          commit-message: "sync: import tronprotocol/libp2p and tronprotocol/java-tron"
-          title: "Sync tronprotocol repos into monorepo"
-          body: |
-            Imports:
-            - tronprotocol/libp2p -> vendor/libp2p
-            - tronprotocol/java-tron -> vendor/java-tron
-          labels: |
-            automation
-            monorepo
+        run: |
+          gh pr create \
+            --base main \
+            --head sync/tron-monorepo \
+            --title "Sync tronprotocol repos into monorepo" \
+            --body $'Imports:\n- tronprotocol/libp2p -> vendor/libp2p\n- tronprotocol/java-tron -> vendor/java-tron' \
+            --label automation \
+            --label monorepo || true
 
   build-libp2p:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
