@@ -1,89 +1,30 @@
-name: Sync tronprotocol repos into monorepo
-
-on:
-  workflow_dispatch:
-    inputs:
-      libp2p_ref:
-        description: "Branch or tag to import from tronprotocol/libp2p"
-        required: false
-        default: "main"
-      java_tron_ref:
-        description: "Branch or tag to import from tronprotocol/java-tron"
-        required: false
-        default: "develop"
-  schedule:
-    - cron: "0 3 * * 1" # weekly sync
-
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
-  sync:
+  build-libp2p:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout monorepo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
         with:
-          fetch-depth: 0
+          distribution: temurin
+          java-version: '17'
 
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Add upstream remotes
-        run: |
-          git remote add libp2p-upstream https://github.com/tronprotocol/libp2p.git 2>/dev/null || true
-          git remote add java-tron-upstream https://github.com/tronprotocol/java-tron.git 2>/dev/null || true
-          git fetch --prune libp2p-upstream
-          git fetch --prune java-tron-upstream
-
-      - name: Sync libp2p into vendor/libp2p
-        env:
-          LIBP2P_REF: ${{ inputs.libp2p_ref || 'main' }}
-        run: |
-          mkdir -p vendor
-          if [ -d vendor/libp2p ]; then
-            git subtree pull --prefix=vendor/libp2p libp2p-upstream "$LIBP2P_REF" --squash
-          else
-            git subtree add --prefix=vendor/libp2p libp2p-upstream "$LIBP2P_REF" --squash
-          fi
-
-      - name: Sync java-tron into vendor/java-tron
-        env:
-          JAVA_TRON_REF: ${{ inputs.java_tron_ref || 'develop' }}
-        run: |
-          mkdir -p vendor
-          if [ -d vendor/java-tron ]; then
-            git subtree pull --prefix=vendor/java-tron java-tron-upstream "$JAVA_TRON_REF" --squash
-          else
-            git subtree add --prefix=vendor/java-tron java-tron-upstream "$JAVA_TRON_REF" --squash
-          fi
-
-      - name: Build libp2p
-        working-directory: vendor/libp2p
-        run: |
-          chmod +x ./gradlew
+      - run: |
+          cd vendor/libp2p
+          chmod +x gradlew
           ./gradlew clean build -x test
 
-      - name: Build java-tron
-        working-directory: vendor/java-tron
-        run: |
-          chmod +x ./gradlew
-          ./gradlew clean build -x test
+  build-java-tron:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Create pull request
-        uses: peter-evans/create-pull-request@v6
+      - uses: actions/setup-java@v4
         with:
-          commit-message: "sync: import tronprotocol/libp2p and tronprotocol/java-tron"
-          branch: sync/tron-monorepo
-          title: "Sync tronprotocol repos into monorepo"
-          body: |
-            Imports:
-            - tronprotocol/libp2p -> vendor/libp2p
-            - tronprotocol/java-tron -> vendor/java-tron
-          labels: |
-            automation
-            monorepo
+          distribution: temurin
+          java-version: '8'
+
+      - run: |
+          cd vendor/java-tron
+          chmod +x gradlew
+          ./gradlew clean build -x test
