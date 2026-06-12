@@ -1,28 +1,120 @@
-- name: Setup Java 17 for libp2p
-  uses: actions/setup-java@v4
-  with:
-    distribution: temurin
-    java-version: '17'
+name: tron-monorepo-sync-and-ci
 
-- name: Build libp2p
-  working-directory: vendor/libp2p
-  run: |
-    chmod +x gradlew
-    ./gradlew clean build -x test
+on:
+  workflow_dispatch:
+    inputs:
+      libp2p_ref:
+        description: "Branch/tag for tronprotocol/libp2p"
+        required: false
+        default: "main"
+      java_tron_ref:
+        description: "Branch/tag for tronprotocol/java-tron"
+        required: false
+        default: "develop"
+  schedule:
+    - cron: "0 3 * * 1"
+  pull_request:
+  push:
+    branches:
+      - main
 
-- name: Setup Java 8 for java-tron
-  uses: actions/setup-java@v4
-  with:
-    distribution: temurin
-    java-version: '8'
+permissions:
+  contents: write
+  pull-requests: write
 
-- name: Verify Java
-  run: |
-    java -version
-    echo $JAVA_HOME
+jobs:
+  sync-upstreams:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
 
-- name: Build java-tron
-  working-directory: vendor/java-tron
-  run: |
-    chmod +x gradlew
-    ./gradlew clean build -x test
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remotes
+        run: |
+          git remote add libp2p-upstream https://github.com/tronprotocol/libp2p.git 2>/dev/null || true
+          git remote add java-tron-upstream https://github.com/tronprotocol/java-tron.git 2>/dev/null || true
+          git fetch --prune libp2p-upstream
+          git fetch --prune java-tron-upstream
+
+      - name: Import libp2p
+        env:
+          LIBP2P_REF: ${{ inputs.libp2p_ref || 'main' }}
+        run: |
+          mkdir -p vendor
+          if [ -d vendor/libp2p/.git ] || [ -d vendor/libp2p ]; then
+            git subtree pull --prefix=vendor/libp2p libp2p-upstream "$LIBP2P_REF" --squash
+          else
+            git subtree add --prefix=vendor/libp2p libp2p-upstream "$LIBP2P_REF" --squash
+          fi
+
+      - name: Import java-tron
+        env:
+          JAVA_TRON_REF: ${{ inputs.java_tron_ref || 'develop' }}
+        run: |
+          mkdir -p vendor
+          if [ -d vendor/java-tron/.git ] || [ -d vendor/java-tron ]; then
+            git subtree pull --prefix=vendor/java-tron java-tron-upstream "$JAVA_TRON_REF" --squash
+          else
+            git subtree add --prefix=vendor/java-tron java-tron-upstream "$JAVA_TRON_REF" --squash
+          fi
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: sync/tron-monorepo
+          commit-message: "sync: import tronprotocol/libp2p and tronprotocol/java-tron"
+          title: "Sync tronprotocol repos into monorepo"
+          body: |
+            Imports:
+            - tronprotocol/libp2p -> vendor/libp2p
+            - tronprotocol/java-tron -> vendor/java-tron
+          labels: |
+            automation
+            monorepo
+
+  build-libp2p:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Build libp2p
+        working-directory: vendor/libp2p
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon clean build -x test
+
+  build-java-tron:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - name: Build java-tron
+        working-directory: vendor/java-tron
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon clean build -x test
