@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       libp2p_ref:
-        description: "Branch/tag for tronprotocol/libp2p"
+        description: "Branch or tag for tronprotocol/libp2p"
         required: false
         default: "main"
       java_tron_ref:
-        description: "Branch/tag for tronprotocol/java-tron"
+        description: "Branch or tag for tronprotocol/java-tron"
         required: false
         default: "develop"
   schedule:
@@ -21,6 +21,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+
+concurrency:
+  group: tron-monorepo-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   sync-upstreams:
@@ -45,23 +49,23 @@ jobs:
           git fetch --prune libp2p-upstream
           git fetch --prune java-tron-upstream
 
-      - name: Import libp2p
+      - name: Import libp2p into vendor/libp2p
         env:
           LIBP2P_REF: ${{ inputs.libp2p_ref || 'main' }}
         run: |
           mkdir -p vendor
-          if [ -d vendor/libp2p/.git ] || [ -d vendor/libp2p ]; then
+          if [ -d vendor/libp2p ]; then
             git subtree pull --prefix=vendor/libp2p libp2p-upstream "$LIBP2P_REF" --squash
           else
             git subtree add --prefix=vendor/libp2p libp2p-upstream "$LIBP2P_REF" --squash
           fi
 
-      - name: Import java-tron
+      - name: Import java-tron into vendor/java-tron
         env:
           JAVA_TRON_REF: ${{ inputs.java_tron_ref || 'develop' }}
         run: |
           mkdir -p vendor
-          if [ -d vendor/java-tron/.git ] || [ -d vendor/java-tron ]; then
+          if [ -d vendor/java-tron ]; then
             git subtree pull --prefix=vendor/java-tron java-tron-upstream "$JAVA_TRON_REF" --squash
           else
             git subtree add --prefix=vendor/java-tron java-tron-upstream "$JAVA_TRON_REF" --squash
@@ -70,7 +74,10 @@ jobs:
       - name: Create pull request
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ secrets.REPO_PAT }}
           branch: sync/tron-monorepo
+          branch-suffix: none
+          delete-branch: true
           commit-message: "sync: import tronprotocol/libp2p and tronprotocol/java-tron"
           title: "Sync tronprotocol repos into monorepo"
           body: |
@@ -86,7 +93,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout monorepo
+        uses: actions/checkout@v4
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
@@ -105,7 +113,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout monorepo
+        uses: actions/checkout@v4
 
       - name: Setup JDK 8
         uses: actions/setup-java@v4
